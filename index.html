@@ -85,8 +85,11 @@
   <div id="btnLogWrap" style="display:none;text-align:center;margin-top:10px">
     <button onclick="mostrarLog()" style="background:transparent;color:#4ecca3;border:1px solid #4ecca3;border-radius:8px;font-size:16px;cursor:pointer;letter-spacing:1px;padding:10px 24px;width:100%">☰&nbsp; Accessos recents</button>
   </div>
-  <div id="btnConfigWrap" style="display:none;text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid #2a2a4a">
+  <div id="btnConfigWrap" style="display:none;text-align:center;margin-top:10px">
     <button onclick="mostrarNoms()" style="background:transparent;color:#4ecca3;border:1px solid #4ecca3;border-radius:8px;font-size:16px;cursor:pointer;letter-spacing:1px;padding:10px 24px;width:100%">⚙&nbsp; Gestió de balisses</button>
+  </div>
+  <div id="btnWifiWrap" style="display:none;text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid #2a2a4a">
+    <button onclick="mostrarWifi()" style="background:transparent;color:#4ecca3;border:1px solid #4ecca3;border-radius:8px;font-size:16px;cursor:pointer;letter-spacing:1px;padding:10px 24px;width:100%">📶&nbsp; Canvi de WiFi</button>
   </div>
 </div>
 
@@ -113,6 +116,36 @@
   <button class="btn-log" onclick="pedirLog()">↻ Actualitzar</button>
   <button class="btn-log" style="color:#e94560;border-color:#e94560;margin-top:6px" onclick="borrarLog()">✕ Esborrar registres</button>
   <div id="listaLog" style="margin-top:12px"><p class="log-vacio">Carregant...</p></div>
+</div>
+
+<!-- ── Vista cambio de WiFi ── -->
+<div id="vistaWifi" style="display:none" class="container">
+  <div style="display:flex;align-items:center;margin-bottom:20px">
+    <button onclick="volverDesdeWifi()" style="background:transparent;color:#4ecca3;border:none;font-size:32px;cursor:pointer;margin-right:10px;line-height:1;padding:0">←</button>
+    <h1 style="font-size:18px;letter-spacing:2px">CANVI DE WIFI</h1>
+  </div>
+
+  <h2 style="font-size:13px;color:#aaa;letter-spacing:1px;margin-bottom:10px">XARXA ACTUAL</h2>
+  <div id="wifiActual" class="log-item log-admin"><span class="log-tipo">Consultant...</span></div>
+  <button class="btn-log" onclick="pedirWifi()">↻ Actualitzar xarxa</button>
+
+  <h2 style="font-size:13px;color:#aaa;letter-spacing:1px;margin:20px 0 10px">CANVI REMOT (MQTT)</h2>
+  <div style="text-align:left">
+    <input id="wifiSsid" type="text" placeholder="SSID nova" maxlength="32"
+      style="width:100%;padding:10px;border-radius:6px;border:1px solid #2e6da4;background:#0a2040;color:#eee;font-size:13px;margin-bottom:8px">
+    <input id="wifiPass" type="password" placeholder="Contrasenya nova"
+      style="width:100%;padding:10px;border-radius:6px;border:1px solid #2e6da4;background:#0a2040;color:#eee;font-size:13px;margin-bottom:8px">
+  </div>
+  <button class="btn-inv" onclick="enviarWifi()">Enviar al garatge</button>
+  <div id="wifiResultado" style="font-size:12px;color:#888;margin-top:10px;min-height:18px"></div>
+
+  <div class="seccion-invitar" style="margin-top:24px">
+    <h2>CANVI LOCAL (portal propi)</h2>
+    <a href="http://garaje.local/config" target="_blank" rel="noopener"
+       style="display:block;background:#0f3460;color:#4ecca3;border:1px solid #2e6da4;border-radius:8px;padding:10px 20px;font-size:14px;text-decoration:none">
+      ⚙ Obrir garaje.local/config</a>
+    <p style="font-size:11px;color:#666;margin-top:8px">Només des de la xarxa del garatge. Si no carrega, el dispositiu pot estar en mode configuració: prova <span style="color:#888">http://192.168.4.1</span></p>
+  </div>
 </div>
 
 <script>
@@ -187,8 +220,8 @@
     if (timerLog) clearTimeout(timerLog);
     timerLog = setTimeout(function() {
       var lista = document.getElementById("listaLog");
-      if (lista.innerHTML.indexOf("Cargando") !== -1) {
-        lista.innerHTML = '<p class="log-vacio">Sense resposta — prueba de nuevo</p>';
+      if (lista.innerHTML.indexOf("Carregant") !== -1) {
+        lista.innerHTML = '<p class="log-vacio">Sense resposta — ↻ per tornar-ho a provar</p>';
       }
     }, 5000);
   }
@@ -263,6 +296,90 @@
     document.getElementById("vistaPrincipal").style.display   = "block";
   }
 
+  /* ── Vista WiFi ── */
+  var timerWifi = null;
+  var segWifi = 0;
+
+  function mostrarWifi() {
+    document.getElementById("vistaPrincipal").style.display = "none";
+    document.getElementById("vistaWifi").style.display = "block";
+    pedirWifi();
+  }
+
+  function volverDesdeWifi() {
+    pararCuentaWifi();
+    document.getElementById("vistaWifi").style.display = "none";
+    document.getElementById("vistaPrincipal").style.display = "block";
+  }
+
+  function setWifiActual(txt) {
+    document.getElementById("wifiActual").innerHTML =
+      '<span class="log-tipo">' + txt + '</span>';
+  }
+
+  function pararCuentaWifi() {
+    if (timerWifi) { clearInterval(timerWifi); timerWifi = null; }
+  }
+
+  function pedirWifi() {
+    if (!client || !client.connected) { setWifiActual("Broker no connectat"); return; }
+    setWifiActual("Consultant...");
+    client.publish("garaje3/pedir_wifi", "1");
+    cuentaAtrasWifi(10, "Consultant xarxa actual");
+  }
+
+  function enviarWifi() {
+    var ssid = document.getElementById("wifiSsid").value.trim();
+    var pass = document.getElementById("wifiPass").value;
+    if (!ssid) return;
+    if (!client || !client.connected) { setWifiResultado("Broker no connectat", true); return; }
+    if (!confirm("Canviar el garatge a la xarxa '" + ssid + "'?\n\nEl dispositiu es desconnectarà de la xarxa actual. Assegura't que la nova és a l'abast.")) return;
+
+    client.publish("garaje3/nueva_wifi", ssid + "|" + pass);
+    document.getElementById("wifiPass").value = "";
+    cuentaAtrasWifi(45, "Ordre enviada — esperant resposta del garatge");
+  }
+
+  function setWifiResultado(txt, esError) {
+    var el = document.getElementById("wifiResultado");
+    el.textContent = txt;
+    el.style.color = esError ? "#e94560" : "#4ecca3";
+  }
+
+  function cuentaAtrasWifi(segundos, msgBase) {
+    pararCuentaWifi();
+    segWifi = segundos;
+    setWifiResultado(msgBase + " (" + segWifi + "s)...", false);
+    timerWifi = setInterval(function() {
+      segWifi--;
+      if (segWifi <= 0) {
+        pararCuentaWifi();
+        setWifiResultado("⏱ Sense resposta (" + segundos + "s). El garatge deu estar canviant de xarxa, en mode config, o ha perdut la connexió. Si era un canvi remot, comprova que ja hi torna a haver resposta; si no, ↻ per reintentar.", true);
+        return;
+      }
+      setWifiResultado(msgBase + " (" + segWifi + "s)...", false);
+    }, 1000);
+  }
+
+  function onWifiResult(msg) {
+    pararCuentaWifi();
+    if (msg === "OK") {
+      setWifiResultado("✓ Canvi rebut pel garatge. Ara es connectarà a la nova xarxa (la pàgina trigarà uns segons a tornar-hi a respondre).", false);
+    } else if (msg === "ERROR") {
+      setWifiResultado("✗ El garatge no ha pogut connectar a la xarxa nova i ha revertit a la anterior (wificfg).", true);
+    } else {
+      try {
+        var w = JSON.parse(msg);
+        setWifiActual("SSID: " + (w.s || "?") +
+          " · RSSI: " + (typeof w.r === "number" ? w.r + " dBm" : "?") +
+          (w.ip ? " · " + w.ip : ""));
+      } catch(e) {
+        setWifiActual(msg); /* respuestas legibles en texto plano */
+      }
+      setWifiResultado("", false);
+    }
+  }
+
   function conectar() {
     setEstado("conectando");
     var clientId = "web_garaje_" + Math.random().toString(16).substr(2, 8);
@@ -277,6 +394,7 @@
       client.subscribe("garaje3/puerta");
       client.subscribe("garaje3/log");
       client.subscribe("garaje3/nombres_ok");
+      client.subscribe("garaje3/wifi_result");
       if (!modoInvitado) { pedirLog(); pedirNoms(); }
       if (modoInvitado) client.publish("garaje3/consulta_token", tokenInvitado);
     });
@@ -287,6 +405,8 @@
     client.on("message", function(topic, payload) {
       var msg = payload.toString();
       var btn = document.getElementById("btnAbrir");
+
+      if (topic === "garaje3/wifi_result") { onWifiResult(msg); }
 
       if (topic === "garaje3/puerta") {
         var el = document.getElementById("puertaEstado");
@@ -385,6 +505,7 @@
       document.getElementById("secInvitar").style.display  = "block";
       document.getElementById("btnLogWrap").style.display    = "block";
       document.getElementById("btnConfigWrap").style.display = "block";
+      document.getElementById("btnWifiWrap").style.display  = "block";
     }
     conectar();
   };
